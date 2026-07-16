@@ -1,5 +1,6 @@
 /* ================================================================
-   COOPATA — Sistema de gestão · versão conectada ao Supabase
+   COOPATA — Sistema de gestão · versão conectada ao Supabase · v2
+   (requer o schema-coopata-v2.sql aplicado no banco)
    ----------------------------------------------------------------
    Como usar (projeto Vite + React):
      1. npm create vite@latest coopata -- --template react
@@ -34,7 +35,7 @@ import {
   LogOut, Plus, AlertTriangle, TrendingUp, Waves, Anchor, Calendar, Printer,
   X, Eye, EyeOff, ArrowUpRight, ArrowDownRight, CircleDollarSign, Boxes,
   FileBarChart, Lock, Ruler, Utensils, Skull, Ship, CheckCircle2,
-  ChevronLeft, ExternalLink, RefreshCw,
+  ChevronLeft, ExternalLink, RefreshCw, Settings, Pencil, Trash2, Ban, Tags,
 } from "lucide-react";
 
 /* ---------------- conexão com o Supabase ---------------- */
@@ -47,32 +48,21 @@ const SUPABASE_ANON_KEY =
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ---------------- parâmetros locais ----------------
-   Valores contábeis ainda não modelados em tabela própria.
-   Ajuste aqui até existir o módulo patrimonial.            */
-const CUSTO_MEDIO_RACAO = 6.6; // R$/kg, para o custo de ração por kg produzido
-
-const IMOBILIZADO = [
-  { item: "Tanques-rede e estruturas de fixação (12 un)", valor: 54000 },
-  { item: "Embarcações e motores", valor: 28500 },
-  { item: "Máquinas e equipamentos (balanças, aeradores)", valor: 9800 },
-  { item: "Flutuante e galpão de apoio", valor: 22000 },
-  { item: "(−) Depreciação acumulada", valor: -18400 },
-];
-
-const PASSIVOS_FIXOS = {
-  obrigacoesTrabalhistas: 4930,
-  fnoCurtoPrazo: 12600,
-  fnoLongoPrazo: 44100,
-  reservas: 21500,
-};
-
 /* Preenchidos a partir das tabelas "parametros" e "especies"
-   no carregamento dos dados. */
+   no carregamento dos dados. Os itens do balanço (imobilizado,
+   passivos e reservas) agora vêm da tabela itens_patrimoniais. */
 let VALOR_COTA = 50;
 let MENSALIDADE = 80;
 let ENCARGOS = 0.38;
+let CUSTO_MEDIO_RACAO = 6.6;
 let ESPECIES = {}; // { nome: { id, cor, preco } }
+
+const TIPOS_PATRIMONIO = {
+  imobilizado: "Imobilizado",
+  passivo_circulante: "Passivo circulante",
+  passivo_nao_circulante: "Passivo não circulante",
+  reserva: "Reservas",
+};
 
 const STYLE = `
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=Instrument+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600;700&display=swap');
@@ -295,6 +285,7 @@ const MODULOS = [
   { id: "balanco", rotulo: "Balanço patrimonial", Icone: Scale },
   { id: "funcionarios", rotulo: "Funcionários", Icone: HardHat },
   { id: "relatorios", rotulo: "Relatórios", Icone: FileBarChart },
+  { id: "config", rotulo: "Configurações", Icone: Settings },
 ];
 
 const ACESSO = {
@@ -316,14 +307,19 @@ const adDocumento = (r) => ({
   id: r.id, titulo: r.titulo, categoria: CATEGORIAS_DOC[r.categoria] || r.categoria,
   orgao: r.orgao || "—", emissao: r.data_emissao, vencimento: r.data_vencimento, arquivo_path: r.arquivo_path,
 });
-const adLancamento = (r) => ({ id: r.id, data: r.data, desc: r.descricao, categoria: r.categoria, tipo: r.tipo, valor: nm(r.valor) });
+const adLancamento = (r) => ({ id: r.id, data: r.data, desc: r.descricao, categoria: r.categoria, tipo: r.tipo, valor: nm(r.valor), conta: r.conta_id });
 const adTitulo = (r) => ({
   id: r.id, tipo: r.tipo, desc: r.descricao, contraparte: r.contraparte || "—",
   credor: r.contraparte || "—", cliente: r.contraparte || "—", valor: nm(r.valor),
-  venc: r.vencimento, status: r.status === "pendente" ? "pendente" : r.tipo === "pagar" ? "pago" : "recebido",
+  venc: r.vencimento,
+  status: r.status === "pendente" ? "pendente" : r.status === "cancelado" ? "cancelado" : r.tipo === "pagar" ? "pago" : "recebido",
 });
 const adEstoque = (r) => ({ id: r.id, item: r.item, unidade: r.unidade, qtd: nm(r.quantidade), minimo: nm(r.minimo), custo: nm(r.custo_unitario) });
-const adFuncionario = (r) => ({ id: r.id, nome: r.nome, cargo: r.cargo || "—", admissao: r.data_admissao, salario: nm(r.salario) });
+const adFuncionario = (r) => ({
+  id: r.id, nome: r.nome, cargo: r.cargo || "—", admissao: r.data_admissao, salario: nm(r.salario),
+  cpf: r.cpf || "", rg: r.rg || "", ctps: r.ctps || "", pis: r.pis || "",
+  telefone: r.telefone || "", endereco: r.endereco || "", observacao: r.observacao || "",
+});
 const adTanque = (r) => ({ id: r.id, volume: nm(r.volume_m3), dim: r.dimensoes || "—", local: r.local || "—", manutencao: r.em_manutencao });
 const adLote = (r) => ({
   id: r.id, especie: r.especies?.nome || "—", tanque: r.tanque_id, alevinos: nm(r.quantidade_alevinos),
@@ -334,6 +330,12 @@ const adLote = (r) => ({
 const adBiometria = (r) => ({ id: r.id, lote: r.lote_id, data: r.data, peso: nm(r.peso_medio_g), amostra: nm(r.amostra) });
 const adAlimentacao = (r) => ({ id: r.id, lote: r.lote_id, data: r.data, racao: r.racao, kg: nm(r.quantidade_kg) });
 const adMortalidade = (r) => ({ id: r.id, lote: r.lote_id, data: r.data, qtd: nm(r.quantidade), causa: r.causa || "Não identificada" });
+const adMensalidade = (r) => ({
+  id: r.id, socio_id: r.socio_id, competencia: r.competencia,
+  valor: nm(r.valor), status: r.status, pago_em: r.pago_em,
+});
+const adConta = (r) => ({ id: r.id, nome: r.nome, banco: r.banco || "", tipo: r.tipo, ativo: r.ativo, saldo: nm(r.saldo) });
+const adPatrimonio = (r) => ({ id: r.id, tipo: r.tipo, descricao: r.descricao, valor: nm(r.valor) });
 const adFluxo = (r) => {
   const d = new Date(String(r.mes).slice(0, 10) + "T12:00:00");
   const rot = MESES_ABREV[d.getMonth()] + (d.getFullYear() !== HOJE.getFullYear() ? "/" + String(d.getFullYear()).slice(2) : "");
@@ -344,17 +346,19 @@ const adFluxo = (r) => {
 async function buscarTudo() {
   const q = (p) => p.then(({ data, error }) => { if (error) throw error; return data || []; });
 
+  const umAnoAtras = new Date(HOJE.getFullYear() - 1, HOJE.getMonth(), 1).toISOString().slice(0, 10);
   const [
-    especiesRows, parametrosRows, sociosRows, abertasRows, documentosRows,
+    especiesRows, parametrosRows, sociosRows, mensRows, documentosRows,
     lancRows, titulosRows, estoqueRows, funcRows, tanquesRows,
     lotesRows, indRows, bioRows, aliRows, morRows, fluxoRows,
+    categoriasRows, contasRows, rateiosRows, patrimonioRows,
   ] = await Promise.all([
     q(supabase.from("especies").select("*").order("id")),
-    q(supabase.from("parametros").select("*")),
+    q(supabase.from("parametros").select("*").order("chave")),
     q(supabase.from("socios").select("*").order("nome")),
-    q(supabase.from("mensalidades").select("*").eq("status", "aberta").order("competencia")),
+    q(supabase.from("mensalidades").select("*").gte("competencia", umAnoAtras).order("competencia")),
     q(supabase.from("documentos").select("*")),
-    q(supabase.from("lancamentos").select("*").order("data", { ascending: false }).order("criado_em", { ascending: false }).limit(300)),
+    q(supabase.from("lancamentos").select("*").order("data", { ascending: false }).order("criado_em", { ascending: false }).limit(1000)),
     q(supabase.from("titulos").select("*").order("vencimento")),
     q(supabase.from("estoque_itens").select("*").eq("ativo", true).order("item")),
     q(supabase.from("funcionarios").select("*").eq("ativo", true).order("nome")),
@@ -365,6 +369,10 @@ async function buscarTudo() {
     q(supabase.from("alimentacoes").select("*").order("data", { ascending: false }).limit(400)),
     q(supabase.from("mortalidades").select("*").order("data", { ascending: false }).limit(400)),
     q(supabase.from("v_fluxo_mensal").select("*")),
+    q(supabase.from("categorias_financeiras").select("*").order("tipo").order("nome")),
+    q(supabase.from("v_saldo_contas").select("*").order("nome")),
+    q(supabase.from("lancamento_rateios").select("*")),
+    q(supabase.from("itens_patrimoniais").select("*").order("criado_em")),
   ]);
 
   // parâmetros e espécies alimentam as constantes do módulo
@@ -373,20 +381,35 @@ async function buscarTudo() {
   VALOR_COTA = PAR.valor_cota || VALOR_COTA;
   MENSALIDADE = PAR.mensalidade || MENSALIDADE;
   ENCARGOS = PAR.encargos_folha || ENCARGOS;
+  CUSTO_MEDIO_RACAO = PAR.custo_racao_kg || CUSTO_MEDIO_RACAO;
   ESPECIES = {};
   especiesRows.forEach((e) => { ESPECIES[e.nome] = { id: e.id, cor: e.cor_hex || "#5F7069", preco: nm(e.preco_kg) }; });
 
+  const mensalidades = mensRows.map(adMensalidade);
+  const abertas = mensalidades.filter((m) => m.status === "aberta");
   const socios = sociosRows.map((r) => ({
     ...adSocio(r),
-    mensalidadeEmDia: !abertasRows.some((m) => m.socio_id === r.id),
+    mensalidadeEmDia: !abertas.some((m) => m.socio_id === r.id),
   }));
 
   const titulos = titulosRows.map(adTitulo);
-  const saldo = fluxoRows.reduce((s, r) => s + nm(r.receitas) - nm(r.despesas), 0);
+  const contas = contasRows.map(adConta);
+  const saldo = contas.reduce((s, c) => s + c.saldo, 0);
+  const rateios = {};
+  rateiosRows.forEach((r) => {
+    (rateios[r.lancamento_id] = rateios[r.lancamento_id] || []).push({ tanque: r.tanque_id, valor: nm(r.valor) });
+  });
 
   return {
     socios,
-    mensalidadesAbertas: abertasRows,
+    mensalidades,
+    mensalidadesAbertas: abertas,
+    parametros: parametrosRows.map((p) => ({ chave: p.chave, valor: nm(p.valor), descricao: p.descricao || p.chave })),
+    categorias: categoriasRows,
+    contas,
+    rateios,
+    patrimonio: patrimonioRows.map(adPatrimonio),
+    especiesLista: especiesRows.map((e) => ({ id: e.id, nome: e.nome, preco: nm(e.preco_kg), cor: e.cor_hex || "#5F7069" })),
     documentos: documentosRows.map(adDocumento),
     lancamentos: lancRows.map(adLancamento),
     pagar: titulos.filter((t) => t.tipo === "pagar"),
@@ -762,9 +785,13 @@ function Dashboard({ dados, indicadores }) {
    SÓCIOS
    ================================================================ */
 function Socios({ dados, podeEditar, agir }) {
-  const { socios } = dados;
-  const [modal, setModal] = useState(false);
-  const [f, setF] = useState({ nome: "", cpf: "", comunidade: "", telefone: "", cotas: 20, adesao: hojeISO });
+  const { socios, mensalidades, contas } = dados;
+  const contasAtivas = contas.filter((c) => c.ativo);
+  const contaPadrao = (contasAtivas.find((c) => c.tipo === "caixa") || contasAtivas[0])?.id || "";
+  const [modal, setModal] = useState(null); // 'novo' | 'editar'
+  const [socioSel, setSocioSel] = useState(null);
+  const [f, setF] = useState({});
+  const [contaSel, setContaSel] = useState("");
   const [erroM, setErroM] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [gerando, setGerando] = useState(false);
@@ -774,14 +801,29 @@ function Socios({ dados, podeEditar, agir }) {
   const capitalTotal = socios.reduce((s, x) => s + x.cotas * VALOR_COTA, 0);
   const emDia = ativos.filter((s) => s.mensalidadeEmDia).length;
 
+  const abrirNovo = () => {
+    setErroM("");
+    setF({ nome: "", cpf: "", comunidade: "", telefone: "", cargo: "", cotas: 20, adesao: hojeISO });
+    setModal("novo");
+  };
+  const abrirEditar = (s) => {
+    setErroM("");
+    setF({
+      id: s.id, nome: s.nome, cpf: s.cpf === "—" ? "" : s.cpf,
+      comunidade: s.comunidade === "—" ? "" : s.comunidade,
+      telefone: s.telefone === "—" ? "" : s.telefone,
+      cargo: s.cargo, cotas: s.cotas, adesao: s.adesao, status: s.status,
+    });
+    setModal("editar");
+  };
+
   const salvar = async () => {
-    if (!f.nome.trim()) { setErroM("Informe o nome do sócio."); return; }
+    if (!f.nome?.trim()) { setErroM("Informe o nome do sócio."); return; }
     setSalvando(true);
-    const e = await agir.salvarSocio(f);
+    const e = modal === "novo" ? await agir.salvarSocio(f) : await agir.editarSocio(f.id, f);
     setSalvando(false);
     if (e) { setErroM(e); return; }
-    setModal(false);
-    setF({ nome: "", cpf: "", comunidade: "", telefone: "", cotas: 20, adesao: hojeISO });
+    setModal(null);
   };
 
   const gerar = async () => {
@@ -791,11 +833,16 @@ function Socios({ dados, podeEditar, agir }) {
     setAvisoGeral(e ? e : "Mensalidades do mês geradas para os sócios ativos.");
   };
 
-  const baixar = async (s) => {
-    setAvisoGeral("");
-    const e = await agir.baixarMensalidade(s);
-    if (e) setAvisoGeral(e);
+  const acaoMensalidade = async (fn, ...args) => {
+    setErroM("");
+    const e = await fn(...args);
+    if (e) setErroM(e);
   };
+
+  const mensDoSocio = socioSel
+    ? mensalidades.filter((m) => m.socio_id === socioSel.id)
+        .sort((a, b) => String(b.competencia).localeCompare(String(a.competencia)))
+    : [];
 
   return (
     <div>
@@ -809,14 +856,14 @@ function Socios({ dados, podeEditar, agir }) {
         <div className="card-cab">
           <div>
             <div className="card-tit"><Users size={16} /> Quadro social</div>
-            <div className="card-sub">Cadastro, capital integralizado e situação das mensalidades</div>
+            <div className="card-sub">Cadastro, capital integralizado e gestão das mensalidades por competência</div>
           </div>
           {podeEditar && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="btn btn-sm" onClick={gerar} disabled={gerando}>
                 <RefreshCw size={13} /> {gerando ? "Gerando…" : "Gerar mensalidades do mês"}
               </button>
-              <button className="btn btn-pri btn-sm" onClick={() => { setErroM(""); setModal(true); }}><Plus size={14} /> Novo sócio</button>
+              <button className="btn btn-pri btn-sm" onClick={abrirNovo}><Plus size={14} /> Novo sócio</button>
             </div>
           )}
         </div>
@@ -841,8 +888,9 @@ function Socios({ dados, podeEditar, agir }) {
                   <td>{s.mensalidadeEmDia ? <Badge tom="ok">Em dia</Badge> : <Badge tom="crit">Em aberto</Badge>}</td>
                   <td><Badge tom={s.status === "Ativo" ? "info" : "muted"}>{s.status}</Badge></td>
                   {podeEditar && (
-                    <td>{!s.mensalidadeEmDia &&
-                      <button className="btn btn-sm" onClick={() => baixar(s)}><CheckCircle2 size={13} /> Baixar</button>}
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn btn-sm" style={{ marginRight: 6 }} onClick={() => { setErroM(""); setContaSel(""); setSocioSel(s); }}>Mensalidades</button>
+                      <button className="btn btn-sm" onClick={() => abrirEditar(s)} title="Editar cadastro"><Pencil size={13} /></button>
                     </td>
                   )}
                 </tr>
@@ -858,8 +906,56 @@ function Socios({ dados, podeEditar, agir }) {
         </div>
       </div>
 
+      {socioSel && (
+        <Modal titulo={"Mensalidades — " + socioSel.nome} onFechar={() => setSocioSel(null)} largura={580}>
+          {erroM && <div className="erro-box">{erroM}</div>}
+          <Campo rotulo="Conta que recebe as baixas">
+            <select value={contaSel || contaPadrao} onChange={(e) => setContaSel(e.target.value)}>
+              {contasAtivas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </Campo>
+          <div className="tbl-wrap" style={{ maxHeight: 340, overflowY: "auto" }}>
+            <table className="tbl">
+              <thead><tr><th>Competência</th><th className="num">Valor</th><th>Situação</th><th></th></tr></thead>
+              <tbody>
+                {mensDoSocio.map((m) => (
+                  <tr key={m.id}>
+                    <td>{dataBR(m.competencia).slice(3)}</td>
+                    <td className="num">{BRL(m.valor)}</td>
+                    <td>
+                      {m.status === "paga" ? <Badge tom="ok">Paga em {dataBR(m.pago_em)}</Badge>
+                        : m.status === "isenta" ? <Badge tom="muted">Isenta</Badge>
+                        : <Badge tom="crit">Em aberto</Badge>}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                      {m.status === "aberta" && (
+                        <>
+                          <button className="btn btn-sm" style={{ marginRight: 6 }}
+                            onClick={() => acaoMensalidade(agir.baixarMensalidade, m, contaSel || contaPadrao, socioSel.nome)}>
+                            <CheckCircle2 size={13} /> Baixar
+                          </button>
+                          <button className="btn btn-sm" onClick={() => acaoMensalidade(agir.isentarMensalidade, m)}>Isentar</button>
+                        </>
+                      )}
+                      {m.status !== "aberta" && (
+                        <button className="btn btn-sm" onClick={() => acaoMensalidade(agir.reabrirMensalidade, m)}>Reabrir</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {mensDoSocio.length === 0 && <tr><td colSpan={4} className="vazio">Nenhuma competência gerada para este sócio.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <p style={{ fontSize: 11.5, color: "var(--tinta2)", marginTop: 10 }}>
+            A baixa lança a receita na conta escolhida. Reabrir uma mensalidade paga não apaga o lançamento —
+            se for estorno, cancele também o lançamento correspondente no Financeiro.
+          </p>
+        </Modal>
+      )}
+
       {modal && (
-        <Modal titulo="Cadastrar novo sócio" onFechar={() => setModal(false)}>
+        <Modal titulo={modal === "novo" ? "Cadastrar novo sócio" : "Editar sócio"} onFechar={() => setModal(null)}>
           {erroM && <div className="erro-box">{erroM}</div>}
           <Campo rotulo="Nome completo"><input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} /></Campo>
           <div className="campos-2">
@@ -867,11 +963,19 @@ function Socios({ dados, podeEditar, agir }) {
             <Campo rotulo="Telefone"><input value={f.telefone} onChange={(e) => setF({ ...f, telefone: e.target.value })} placeholder="(93) 9…" /></Campo>
             <Campo rotulo="Comunidade"><input value={f.comunidade} onChange={(e) => setF({ ...f, comunidade: e.target.value })} /></Campo>
             <Campo rotulo="Data de adesão"><input type="date" value={f.adesao} onChange={(e) => setF({ ...f, adesao: e.target.value })} /></Campo>
-            <Campo rotulo={"Cotas subscritas (" + BRL(VALOR_COTA) + " cada)"}><input type="number" min="1" value={f.cotas} onChange={(e) => setF({ ...f, cotas: e.target.value })} /></Campo>
+            <Campo rotulo={"Cotas (" + BRL(VALOR_COTA) + " cada)"}><input type="number" min="1" value={f.cotas} onChange={(e) => setF({ ...f, cotas: e.target.value })} /></Campo>
+            <Campo rotulo="Cargo (opcional)"><input value={f.cargo} onChange={(e) => setF({ ...f, cargo: e.target.value })} placeholder="ex.: Conselho fiscal" /></Campo>
+            {modal === "editar" && (
+              <Campo rotulo="Situação">
+                <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+                  <option>Ativo</option><option>Desligado</option>
+                </select>
+              </Campo>
+            )}
             <Campo rotulo="Capital integralizado"><input disabled value={BRL((Number(f.cotas) || 0) * VALOR_COTA)} /></Campo>
           </div>
           <button className="btn btn-pri" style={{ width: "100%", justifyContent: "center" }} onClick={salvar} disabled={salvando}>
-            {salvando ? "Salvando…" : "Salvar sócio"}
+            {salvando ? "Salvando…" : modal === "novo" ? "Salvar sócio" : "Salvar alterações"}
           </button>
         </Modal>
       )}
@@ -990,10 +1094,17 @@ function Documentos({ dados, podeEditar, agir }) {
    FINANCEIRO
    ================================================================ */
 function Financeiro({ dados, podeEditar, agir }) {
-  const { lancamentos, pagar, receber, fluxo, saldo } = dados;
+  const { lancamentos, pagar, receber, fluxo, saldo, contas, categorias, rateios, tanques } = dados;
+  const contasAtivas = contas.filter((c) => c.ativo);
+  const contaPadrao = (contasAtivas.find((c) => c.tipo === "caixa") || contasAtivas[0])?.id || "";
   const [aba, setAba] = useState("lanc");
   const [modal, setModal] = useState(null); // 'lanc' | 'pagar' | 'receber'
   const [f, setF] = useState({});
+  const [ratear, setRatear] = useState(false);
+  const [tanquesSel, setTanquesSel] = useState([]);
+  const [liq, setLiq] = useState(null);       // título a liquidar (escolhe conta)
+  const [cancLanc, setCancLanc] = useState(null); // lançamento a cancelar
+  const [cancTit, setCancTit] = useState(null);   // título a cancelar
   const [erroM, setErroM] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [avisoGeral, setAvisoGeral] = useState("");
@@ -1001,31 +1112,62 @@ function Financeiro({ dados, podeEditar, agir }) {
   const totReceber = receber.filter((c) => c.status === "pendente").reduce((s, c) => s + c.valor, 0);
   const totPagar = pagar.filter((c) => c.status === "pendente").reduce((s, c) => s + c.valor, 0);
   const ult = fluxo[fluxo.length - 1] || { mes: "—", receitas: 0, despesas: 0 };
+  const nomeConta = (id) => contas.find((c) => c.id === id)?.nome || "—";
+  const resumoContas = contasAtivas.map((c) => c.nome + " " + BRL(c.saldo)).join(" · ");
 
   const abrir = (tipo) => {
-    setErroM("");
+    setErroM(""); setRatear(false); setTanquesSel([]);
     setF(tipo === "lanc"
-      ? { data: hojeISO, desc: "", categoria: "Vendas", tipo: "receita", valor: "" }
+      ? { data: hojeISO, desc: "", categoria: "", tipo: "receita", valor: "", conta: contaPadrao }
       : { desc: "", contraparte: "", valor: "", venc: hojeISO });
     setModal(tipo);
   };
+
+  const categoriasDoTipo = (tipo) => {
+    const lista = categorias.filter((c) => c.ativo && c.tipo === tipo).map((c) => c.nome);
+    return lista.length ? lista : ["Outros"];
+  };
+
   const salvar = async () => {
     const v = Number(String(f.valor).replace(",", "."));
     if (!f.desc?.trim() || !v) { setErroM("Preencha a descrição e um valor válido."); return; }
     setSalvando(true);
     let e = null;
-    if (modal === "lanc") e = await agir.novoLancamento({ ...f, valor: v });
+    if (modal === "lanc") {
+      const cat = f.categoria || categoriasDoTipo(f.tipo)[0];
+      e = await agir.novoLancamento({ ...f, categoria: cat, valor: v }, ratear ? tanquesSel : null);
+    }
     if (modal === "pagar") e = await agir.novoTitulo("pagar", { ...f, valor: v });
     if (modal === "receber") e = await agir.novoTitulo("receber", { ...f, valor: v });
     setSalvando(false);
     if (e) { setErroM(e); return; }
     setModal(null);
   };
-  const quitar = async (t) => {
-    setAvisoGeral("");
-    const e = await agir.liquidarTitulo(t);
-    if (e) setAvisoGeral(e);
+
+  const confirmarLiquidacao = async () => {
+    setSalvando(true);
+    const e = await agir.liquidarTitulo(liq.t, liq.conta || contaPadrao);
+    setSalvando(false);
+    if (e) { setErroM(e); return; }
+    setLiq(null);
   };
+  const confirmarCancelLanc = async () => {
+    setSalvando(true);
+    const e = await agir.cancelarLancamento(cancLanc);
+    setSalvando(false);
+    if (e) { setErroM(e); return; }
+    setCancLanc(null);
+  };
+  const confirmarCancelTit = async () => {
+    setSalvando(true);
+    const e = await agir.cancelarTitulo(cancTit);
+    setSalvando(false);
+    if (e) { setErroM(e); return; }
+    setCancTit(null);
+  };
+
+  const alternarTanque = (id) =>
+    setTanquesSel(tanquesSel.includes(id) ? tanquesSel.filter((t) => t !== id) : [...tanquesSel, id]);
 
   const TabelaContas = ({ dadosTbl, tipo }) => (
     <div className="tbl-wrap">
@@ -1044,16 +1186,26 @@ function Financeiro({ dados, podeEditar, agir }) {
                 <td>{dataBR(c.venc)}</td>
                 <td className="num">{BRL(c.valor)}</td>
                 <td>
-                  {c.status !== "pendente" ? <Badge tom="ok">{tipo === "pagar" ? "Pago" : "Recebido"}</Badge>
+                  {c.status === "cancelado" ? <Badge tom="muted">Cancelado</Badge>
+                    : c.status !== "pendente" ? <Badge tom="ok">{tipo === "pagar" ? "Pago" : "Recebido"}</Badge>
                     : d < 0 ? <Badge tom="crit">Atrasado {Math.abs(d)} d</Badge>
                     : d <= 7 ? <Badge tom="warn">Vence em {d} d</Badge>
                     : <Badge tom="info">Em aberto</Badge>}
                 </td>
                 {podeEditar && (
-                  <td>{c.status === "pendente" &&
-                    <button className="btn btn-sm" onClick={() => quitar(c)}>
-                      <CheckCircle2 size={13} /> {tipo === "pagar" ? "Baixar" : "Receber"}
-                    </button>}
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {c.status === "pendente" && (
+                      <>
+                        <button className="btn btn-sm" style={{ marginRight: 6 }}
+                          onClick={() => { setErroM(""); setLiq({ t: c, conta: contaPadrao }); }}>
+                          <CheckCircle2 size={13} /> {tipo === "pagar" ? "Baixar" : "Receber"}
+                        </button>
+                        <button className="btn btn-sm" title="Cancelar título"
+                          onClick={() => { setErroM(""); setCancTit(c); }}>
+                          <Ban size={13} />
+                        </button>
+                      </>
+                    )}
                   </td>
                 )}
               </tr>
@@ -1073,7 +1225,7 @@ function Financeiro({ dados, podeEditar, agir }) {
   return (
     <div>
       <div className="grid g4">
-        <Kpi Icone={CircleDollarSign} rotulo="Saldo em caixa" valor={BRL(saldo)} sub="Somatório dos lançamentos registrados" />
+        <Kpi Icone={CircleDollarSign} rotulo="Saldo total" valor={BRL(saldo)} sub={resumoContas || "Cadastre as contas em Configurações"} />
         <Kpi Icone={ArrowUpRight} rotulo="A receber em aberto" valor={BRL(totReceber)} sub={receber.filter((c) => c.status === "pendente").length + " títulos"} subTom="pos" />
         <Kpi Icone={ArrowDownRight} rotulo="A pagar em aberto" valor={BRL(totPagar)} sub={pagar.filter((c) => c.status === "pendente").length + " títulos"} subTom="neg" />
         <Kpi Icone={TrendingUp} rotulo={"Resultado de " + ult.mes} valor={BRL(ult.receitas - ult.despesas)} sub={BRL(ult.receitas) + " − " + BRL(ult.despesas)} subTom={ult.receitas - ult.despesas >= 0 ? "pos" : "neg"} />
@@ -1083,7 +1235,7 @@ function Financeiro({ dados, podeEditar, agir }) {
         <div className="card-cab">
           <div>
             <div className="card-tit"><Wallet size={16} /> Movimento financeiro</div>
-            <div className="card-sub">Lançamentos de caixa, contas a pagar e a receber — a baixa de um título já lança no caixa</div>
+            <div className="card-sub">Lançamentos por conta corrente, com rateio por tanque — a baixa de um título já lança no caixa</div>
           </div>
           {podeEditar && (
             <div style={{ display: "flex", gap: 8 }}>
@@ -1103,19 +1255,36 @@ function Financeiro({ dados, podeEditar, agir }) {
         {aba === "lanc" && (
           <div className="tbl-wrap">
             <table className="tbl">
-              <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th className="num">Valor</th></tr></thead>
+              <thead><tr><th>Data</th><th>Descrição</th><th>Conta</th><th>Categoria</th><th className="num">Valor</th>{podeEditar && <th></th>}</tr></thead>
               <tbody>
                 {lancamentos.map((l) => (
                   <tr key={l.id}>
                     <td>{dataBR(l.data)}</td>
-                    <td><b>{l.desc}</b></td>
+                    <td>
+                      <b>{l.desc}</b>
+                      {rateios[l.id] && (
+                        <div style={{ fontSize: 11, color: "var(--tinta2)" }}
+                          title={rateios[l.id].map((r) => r.tanque + " " + BRL(r.valor)).join(" · ")}>
+                          Rateado entre {rateios[l.id].length} tanque(s)
+                        </div>
+                      )}
+                    </td>
+                    <td>{nomeConta(l.conta)}</td>
                     <td><Badge tom="muted">{l.categoria}</Badge></td>
                     <td className={"num " + (l.tipo === "receita" ? "pos" : "neg")}>
                       {l.tipo === "receita" ? "+" : "−"} {BRL(l.valor)}
                     </td>
+                    {podeEditar && (
+                      <td>
+                        <button className="btn btn-sm" title="Cancelar (excluir) lançamento"
+                          onClick={() => { setErroM(""); setCancLanc(l); }}>
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
-                {lancamentos.length === 0 && <tr><td colSpan={4} className="vazio">Nenhum lançamento — comece registrando o saldo inicial de implantação.</td></tr>}
+                {lancamentos.length === 0 && <tr><td colSpan={podeEditar ? 6 : 5} className="vazio">Nenhum lançamento — comece registrando o saldo inicial de implantação.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -1129,7 +1298,7 @@ function Financeiro({ dados, podeEditar, agir }) {
           {erroM && <div className="erro-box">{erroM}</div>}
           <div className="campos-2">
             <Campo rotulo="Tipo">
-              <select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}>
+              <select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value, categoria: "" })}>
                 <option value="receita">Receita</option><option value="despesa">Despesa</option>
               </select>
             </Campo>
@@ -1137,14 +1306,42 @@ function Financeiro({ dados, podeEditar, agir }) {
           </div>
           <Campo rotulo="Descrição"><input value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} placeholder="ex.: Venda de tambaqui — feira" /></Campo>
           <div className="campos-2">
-            <Campo rotulo="Categoria">
-              <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })}>
-                <option>Vendas</option><option>Mensalidades</option><option>Insumos</option><option>Combustível</option>
-                <option>Energia</option><option>Pessoal</option><option>Manutenção</option><option>Outros</option>
+            <Campo rotulo="Conta">
+              <select value={f.conta} onChange={(e) => setF({ ...f, conta: e.target.value })}>
+                {contasAtivas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
               </select>
             </Campo>
-            <Campo rotulo="Valor (R$)"><input type="number" step="0.01" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} /></Campo>
+            <Campo rotulo="Categoria">
+              <select value={f.categoria || categoriasDoTipo(f.tipo)[0]} onChange={(e) => setF({ ...f, categoria: e.target.value })}>
+                {categoriasDoTipo(f.tipo).map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </Campo>
           </div>
+          <Campo rotulo="Valor (R$)"><input type="number" step="0.01" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} /></Campo>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, margin: "4px 0 10px", cursor: "pointer" }}>
+            <input type="checkbox" checked={ratear} onChange={(e) => { setRatear(e.target.checked); if (!e.target.checked) setTanquesSel([]); }}
+              style={{ width: 16, height: 16, accentColor: "#14302A" }} />
+            Ratear este valor entre tanques
+          </label>
+          {ratear && (
+            <div style={{ border: "1px solid var(--linha)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+                <button className="link-acao" onClick={() => setTanquesSel(tanques.map((t) => t.id))}>Selecionar todos</button>
+                <button className="link-acao" onClick={() => setTanquesSel([])}>Limpar</button>
+                <span style={{ fontSize: 12, color: "var(--tinta2)", marginLeft: "auto" }}>{tanquesSel.length} selecionado(s)</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                {tanques.map((t) => (
+                  <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                    <input type="checkbox" checked={tanquesSel.includes(t.id)} onChange={() => alternarTanque(t.id)}
+                      style={{ accentColor: "#14302A" }} /> {t.id}
+                  </label>
+                ))}
+              </div>
+              <p style={{ fontSize: 11.5, color: "var(--tinta2)", marginTop: 8 }}>O valor é dividido em partes iguais entre os tanques marcados.</p>
+            </div>
+          )}
           <button className="btn btn-pri" style={{ width: "100%", justifyContent: "center" }} onClick={salvar} disabled={salvando}>
             {salvando ? "Salvando…" : "Salvar lançamento"}
           </button>
@@ -1162,6 +1359,53 @@ function Financeiro({ dados, podeEditar, agir }) {
           <button className="btn btn-pri" style={{ width: "100%", justifyContent: "center" }} onClick={salvar} disabled={salvando}>
             {salvando ? "Salvando…" : "Salvar título"}
           </button>
+        </Modal>
+      )}
+
+      {liq && (
+        <Modal titulo={(liq.t.tipo === "pagar" ? "Baixar — " : "Receber — ") + liq.t.desc} onFechar={() => setLiq(null)} largura={400}>
+          {erroM && <div className="erro-box">{erroM}</div>}
+          <p style={{ fontSize: 13.5, marginBottom: 12 }}>
+            {BRL(liq.t.valor)} será lançado como {liq.t.tipo === "pagar" ? "despesa" : "receita"} na conta escolhida.
+          </p>
+          <Campo rotulo="Conta">
+            <select value={liq.conta} onChange={(e) => setLiq({ ...liq, conta: e.target.value })}>
+              {contasAtivas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </Campo>
+          <button className="btn btn-pri" style={{ width: "100%", justifyContent: "center" }} onClick={confirmarLiquidacao} disabled={salvando}>
+            {salvando ? "Registrando…" : "Confirmar"}
+          </button>
+        </Modal>
+      )}
+      {cancLanc && (
+        <Modal titulo="Cancelar lançamento" onFechar={() => setCancLanc(null)} largura={420}>
+          {erroM && <div className="erro-box">{erroM}</div>}
+          <p style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 14 }}>
+            Excluir <b>{cancLanc.desc}</b> ({BRL(cancLanc.valor)})? O saldo da conta será recalculado.
+            Se este lançamento veio da baixa de um título, o título voltará a ficar em aberto.
+            A exclusão fica registrada na trilha de auditoria.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" style={{ flex: 1, justifyContent: "center" }} onClick={() => setCancLanc(null)}>Voltar</button>
+            <button className="btn btn-ouro" style={{ flex: 1, justifyContent: "center" }} onClick={confirmarCancelLanc} disabled={salvando}>
+              {salvando ? "Excluindo…" : "Confirmar cancelamento"}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {cancTit && (
+        <Modal titulo="Cancelar título" onFechar={() => setCancTit(null)} largura={400}>
+          {erroM && <div className="erro-box">{erroM}</div>}
+          <p style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 14 }}>
+            Cancelar <b>{cancTit.desc}</b> ({BRL(cancTit.valor)})? O título sai do total em aberto, sem lançamento no caixa.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" style={{ flex: 1, justifyContent: "center" }} onClick={() => setCancTit(null)}>Voltar</button>
+            <button className="btn btn-ouro" style={{ flex: 1, justifyContent: "center" }} onClick={confirmarCancelTit} disabled={salvando}>
+              {salvando ? "Cancelando…" : "Confirmar"}
+            </button>
+          </div>
         </Modal>
       )}
     </div>
@@ -1281,8 +1525,13 @@ function Estoque({ dados, podeEditar, agir }) {
 /* ================================================================
    BALANÇO PATRIMONIAL
    ================================================================ */
-function Balanco({ dados, indicadores }) {
-  const { lotes, estoque, socios, pagar, receber, saldo } = dados;
+function Balanco({ dados, indicadores, podeEditar, agir }) {
+  const { lotes, estoque, socios, pagar, receber, saldo, patrimonio } = dados;
+  const [modal, setModal] = useState(false);
+  const [f, setF] = useState({ tipo: "imobilizado", descricao: "", valor: "" });
+  const [erroM, setErroM] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
   const ativosLotes = lotes.filter((l) => l.status === "Ativo" && indicadores[l.id]);
   const ativosBio = Object.keys(ESPECIES).map((esp) => ({
     esp,
@@ -1290,22 +1539,50 @@ function Balanco({ dados, indicadores }) {
   })).filter((x) => x.valor > 0);
   const totalBio = ativosBio.reduce((s, x) => s + x.valor, 0);
 
+  const grupo = (t) => patrimonio.filter((p) => p.tipo === t);
+  const soma = (t) => grupo(t).reduce((s, p) => s + p.valor, 0);
+  const imobItens = grupo("imobilizado");
+  const imobilizado = soma("imobilizado");
+  const pCircItens = grupo("passivo_circulante");
+  const pNCItens = grupo("passivo_nao_circulante");
+  const reservas = soma("reserva");
+
   const totReceber = receber.filter((c) => c.status === "pendente").reduce((s, c) => s + c.valor, 0);
   const estoques = estoque.reduce((s, e) => s + e.qtd * e.custo, 0);
   const circulante = saldo + totReceber + estoques;
-  const imobilizado = IMOBILIZADO.reduce((s, i) => s + i.valor, 0);
   const totalAtivo = circulante + totalBio + imobilizado;
 
-  const fornecedores = pagar.filter((c) => c.status === "pendente" && c.credor !== "Banco da Amazônia").reduce((s, c) => s + c.valor, 0);
-  const passivoCirc = fornecedores + PASSIVOS_FIXOS.obrigacoesTrabalhistas + PASSIVOS_FIXOS.fnoCurtoPrazo;
-  const passivoNC = PASSIVOS_FIXOS.fnoLongoPrazo;
+  const fornecedores = pagar.filter((c) => c.status === "pendente").reduce((s, c) => s + c.valor, 0);
+  const passivoCirc = fornecedores + soma("passivo_circulante");
+  const passivoNC = soma("passivo_nao_circulante");
   const capital = socios.reduce((s, x) => s + x.cotas * VALOR_COTA, 0);
-  const sobras = totalAtivo - passivoCirc - passivoNC - capital - PASSIVOS_FIXOS.reservas;
-  const totalPassivoPL = passivoCirc + passivoNC + capital + PASSIVOS_FIXOS.reservas + sobras;
+  const sobras = totalAtivo - passivoCirc - passivoNC - capital - reservas;
+  const totalPassivoPL = passivoCirc + passivoNC + capital + reservas + sobras;
 
-  const Linha = ({ rot, val, nivel = 0, forte }) => (
+  const salvar = async () => {
+    const v = Number(String(f.valor).replace(",", "."));
+    if (!f.descricao.trim() || !v) { setErroM("Preencha a descrição e um valor diferente de zero."); return; }
+    setSalvando(true);
+    const e = await agir.salvarItemPatrimonial({ ...f, valor: v });
+    setSalvando(false);
+    if (e) { setErroM(e); return; }
+    setModal(false); setF({ tipo: "imobilizado", descricao: "", valor: "" });
+  };
+  const excluir = async (p) => {
+    setErroM("");
+    const e = await agir.excluirItemPatrimonial(p);
+    if (e) setErroM(e);
+  };
+
+  const Linha = ({ rot, val, nivel = 0, forte, item }) => (
     <tr>
-      <td style={{ paddingLeft: 10 + nivel * 18, fontWeight: forte ? 700 : 400 }}>{rot}</td>
+      <td style={{ paddingLeft: 10 + nivel * 18, fontWeight: forte ? 700 : 400 }}>
+        {rot}
+        {item && podeEditar && (
+          <button className="btn-x" style={{ marginLeft: 6, verticalAlign: "middle" }} title="Remover item"
+            onClick={() => excluir(item)}><Trash2 size={12} /></button>
+        )}
+      </td>
       <td className="num" style={{ fontWeight: forte ? 700 : 400 }}>{BRL(val)}</td>
     </tr>
   );
@@ -1315,10 +1592,19 @@ function Balanco({ dados, indicadores }) {
       <div className="grid g3">
         <Kpi Icone={Scale} rotulo="Total do ativo" valor={BRL(totalAtivo)} sub={"Posição em " + dataBR(hojeISO)} />
         <Kpi Icone={Fish} rotulo="Ativo biológico" valor={BRL(totalBio)} sub="Peixes vivos a valor justo de mercado" />
-        <Kpi Icone={Anchor} rotulo="Patrimônio líquido" valor={BRL(capital + PASSIVOS_FIXOS.reservas + sobras)} sub={"Capital social de " + BRL(capital)} />
+        <Kpi Icone={Anchor} rotulo="Patrimônio líquido" valor={BRL(capital + reservas + sobras)} sub={"Capital social de " + BRL(capital)} />
       </div>
 
-      <div className="grid g2" style={{ marginTop: 16 }}>
+      {podeEditar && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <button className="btn btn-pri btn-sm" onClick={() => { setErroM(""); setModal(true); }}>
+            <Plus size={14} /> Lançar item patrimonial
+          </button>
+        </div>
+      )}
+      {erroM && !modal && <div className="erro-box" style={{ marginTop: 10 }}>{erroM}</div>}
+
+      <div className="grid g2" style={{ marginTop: 14 }}>
         <div className="card">
           <div className="card-tit" style={{ marginBottom: 12 }}><ArrowUpRight size={16} /> Ativo</div>
           <div className="tbl-wrap">
@@ -1331,7 +1617,7 @@ function Balanco({ dados, indicadores }) {
                 <Linha rot="ATIVO BIOLÓGICO" val={totalBio} forte />
                 {ativosBio.map((x) => <Linha key={x.esp} rot={x.esp + " (biomassa × preço de mercado)"} val={x.valor} nivel={1} />)}
                 <Linha rot="IMOBILIZADO" val={imobilizado} forte />
-                {IMOBILIZADO.map((i) => <Linha key={i.item} rot={i.item} val={i.valor} nivel={1} />)}
+                {imobItens.map((i) => <Linha key={i.id} rot={i.descricao} val={i.valor} nivel={1} item={i} />)}
                 <tr className="total"><td>TOTAL DO ATIVO</td><td className="num">{BRL(totalAtivo)}</td></tr>
               </tbody>
             </table>
@@ -1344,26 +1630,42 @@ function Balanco({ dados, indicadores }) {
             <table className="tbl">
               <tbody>
                 <Linha rot="PASSIVO CIRCULANTE" val={passivoCirc} forte />
-                <Linha rot="Fornecedores e contas a pagar" val={fornecedores} nivel={1} />
-                <Linha rot="Obrigações trabalhistas e encargos" val={PASSIVOS_FIXOS.obrigacoesTrabalhistas} nivel={1} />
-                <Linha rot="Financiamento FNO — curto prazo" val={PASSIVOS_FIXOS.fnoCurtoPrazo} nivel={1} />
+                <Linha rot="Fornecedores e contas a pagar (em aberto)" val={fornecedores} nivel={1} />
+                {pCircItens.map((i) => <Linha key={i.id} rot={i.descricao} val={i.valor} nivel={1} item={i} />)}
                 <Linha rot="PASSIVO NÃO CIRCULANTE" val={passivoNC} forte />
-                <Linha rot="Financiamento FNO (Basa) — longo prazo" val={passivoNC} nivel={1} />
-                <Linha rot="PATRIMÔNIO LÍQUIDO" val={capital + PASSIVOS_FIXOS.reservas + sobras} forte />
+                {pNCItens.map((i) => <Linha key={i.id} rot={i.descricao} val={i.valor} nivel={1} item={i} />)}
+                <Linha rot="PATRIMÔNIO LÍQUIDO" val={capital + reservas + sobras} forte />
                 <Linha rot="Capital social integralizado" val={capital} nivel={1} />
-                <Linha rot="Reserva legal e RATES" val={PASSIVOS_FIXOS.reservas} nivel={1} />
+                {grupo("reserva").map((i) => <Linha key={i.id} rot={i.descricao} val={i.valor} nivel={1} item={i} />)}
                 <Linha rot="Sobras acumuladas" val={sobras} nivel={1} />
                 <tr className="total"><td>TOTAL DO PASSIVO + PL</td><td className="num">{BRL(totalPassivoPL)}</td></tr>
               </tbody>
             </table>
           </div>
           <p style={{ fontSize: 11.5, color: "var(--tinta2)", marginTop: 10 }}>
-            O ativo biológico é reavaliado automaticamente pelo banco de dados a partir da biomassa dos lotes ativos
-            e do preço de mercado de cada espécie. Imobilizado e passivos fixos são configurados no topo do código
-            até existir o módulo patrimonial.
+            O ativo biológico é reavaliado automaticamente pelo banco. Imobilizado, passivos fixos e reservas são
+            lançados aqui mesmo pelo botão acima; fornecedores vêm das contas a pagar em aberto.
           </p>
         </div>
       </div>
+
+      {modal && (
+        <Modal titulo="Lançar item patrimonial" onFechar={() => setModal(false)} largura={440}>
+          {erroM && <div className="erro-box">{erroM}</div>}
+          <Campo rotulo="Grupo">
+            <select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}>
+              {Object.entries(TIPOS_PATRIMONIO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Campo>
+          <Campo rotulo="Descrição"><input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="ex.: Aerador novo — 2 un" /></Campo>
+          <Campo rotulo="Valor (R$) — use negativo para depreciação">
+            <input type="number" step="0.01" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} />
+          </Campo>
+          <button className="btn btn-pri" style={{ width: "100%", justifyContent: "center" }} onClick={salvar} disabled={salvando}>
+            {salvando ? "Salvando…" : "Lançar item"}
+          </button>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1373,21 +1675,33 @@ function Balanco({ dados, indicadores }) {
    ================================================================ */
 function Funcionarios({ dados, podeEditar, agir }) {
   const { funcionarios } = dados;
-  const [modal, setModal] = useState(false);
-  const [f, setF] = useState({ nome: "", cargo: "", admissao: hojeISO, salario: "" });
+  const [modal, setModal] = useState(null); // 'novo' | 'editar'
+  const [desligar, setDesligar] = useState(null);
+  const [f, setF] = useState({});
   const [erroM, setErroM] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   const folha = funcionarios.reduce((s, x) => s + x.salario, 0);
   const custoTotal = folha * (1 + ENCARGOS);
+  const vazio = { nome: "", cargo: "", admissao: hojeISO, salario: "", cpf: "", rg: "", ctps: "", pis: "", telefone: "", endereco: "", observacao: "" };
+
+  const abrirNovo = () => { setErroM(""); setF(vazio); setModal("novo"); };
+  const abrirEditar = (x) => { setErroM(""); setF({ ...vazio, ...x, cargo: x.cargo === "—" ? "" : x.cargo }); setModal("editar"); };
 
   const salvar = async () => {
-    if (!f.nome.trim()) { setErroM("Informe o nome do funcionário."); return; }
+    if (!f.nome?.trim()) { setErroM("Informe o nome do funcionário."); return; }
     setSalvando(true);
-    const e = await agir.novoFuncionario(f);
+    const e = await agir.salvarFuncionario(f, modal === "editar" ? f.id : null);
     setSalvando(false);
     if (e) { setErroM(e); return; }
-    setModal(false); setF({ nome: "", cargo: "", admissao: hojeISO, salario: "" });
+    setModal(null);
+  };
+  const confirmarDesligamento = async () => {
+    setSalvando(true);
+    const e = await agir.desligarFuncionario(desligar);
+    setSalvando(false);
+    if (e) { setErroM(e); return; }
+    setDesligar(null);
   };
 
   return (
@@ -1402,30 +1716,43 @@ function Funcionarios({ dados, podeEditar, agir }) {
         <div className="card-cab">
           <div>
             <div className="card-tit"><HardHat size={16} /> Quadro de pessoal</div>
-            <div className="card-sub">Folha de pagamento com estimativa de encargos</div>
+            <div className="card-sub">Ficha com documentos de identificação e folha com estimativa de encargos</div>
           </div>
-          {podeEditar && <button className="btn btn-pri btn-sm" onClick={() => { setErroM(""); setModal(true); }}><Plus size={14} /> Novo funcionário</button>}
+          {podeEditar && <button className="btn btn-pri btn-sm" onClick={abrirNovo}><Plus size={14} /> Novo funcionário</button>}
         </div>
+        {erroM && !modal && !desligar && <div className="erro-box">{erroM}</div>}
         <div className="tbl-wrap">
           <table className="tbl">
-            <thead><tr><th>Nome</th><th>Cargo</th><th>Admissão</th><th className="num">Salário</th><th className="num">Encargos (est.)</th><th className="num">Custo mensal</th></tr></thead>
+            <thead><tr><th>Funcionário</th><th>Cargo</th><th>Admissão</th><th className="num">Salário</th><th className="num">Encargos (est.)</th><th className="num">Custo mensal</th>{podeEditar && <th></th>}</tr></thead>
             <tbody>
               {funcionarios.map((x) => (
                 <tr key={x.id}>
-                  <td><b>{x.nome}</b></td>
+                  <td>
+                    <b>{x.nome}</b>
+                    <div style={{ fontSize: 11.5, color: "var(--tinta2)" }}>
+                      {[x.cpf && "CPF " + x.cpf, x.rg && "RG " + x.rg, x.telefone].filter(Boolean).join(" · ") || "Documentos não informados"}
+                    </div>
+                  </td>
                   <td>{x.cargo}</td>
                   <td>{dataBR(x.admissao)}</td>
                   <td className="num">{BRL(x.salario)}</td>
                   <td className="num">{BRL(x.salario * ENCARGOS)}</td>
                   <td className="num">{BRL(x.salario * (1 + ENCARGOS))}</td>
+                  {podeEditar && (
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn btn-sm" style={{ marginRight: 6 }} onClick={() => abrirEditar(x)} title="Editar ficha"><Pencil size={13} /></button>
+                      <button className="btn btn-sm" onClick={() => { setErroM(""); setDesligar(x); }} title="Registrar desligamento"><Ban size={13} /></button>
+                    </td>
+                  )}
                 </tr>
               ))}
-              {funcionarios.length === 0 && <tr><td colSpan={6} className="vazio">Nenhum funcionário cadastrado.</td></tr>}
+              {funcionarios.length === 0 && <tr><td colSpan={podeEditar ? 7 : 6} className="vazio">Nenhum funcionário cadastrado.</td></tr>}
               <tr className="total">
                 <td colSpan={3}>Total</td>
                 <td className="num">{BRL(folha)}</td>
                 <td className="num">{BRL(folha * ENCARGOS)}</td>
                 <td className="num">{BRL(custoTotal)}</td>
+                {podeEditar && <td></td>}
               </tr>
             </tbody>
           </table>
@@ -1433,17 +1760,39 @@ function Funcionarios({ dados, podeEditar, agir }) {
       </div>
 
       {modal && (
-        <Modal titulo="Cadastrar funcionário" onFechar={() => setModal(false)}>
+        <Modal titulo={modal === "novo" ? "Cadastrar funcionário" : "Editar ficha — " + f.nome} onFechar={() => setModal(null)} largura={540}>
           {erroM && <div className="erro-box">{erroM}</div>}
           <Campo rotulo="Nome completo"><input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} /></Campo>
           <div className="campos-2">
             <Campo rotulo="Cargo"><input value={f.cargo} onChange={(e) => setF({ ...f, cargo: e.target.value })} placeholder="ex.: Auxiliar de manejo" /></Campo>
             <Campo rotulo="Admissão"><input type="date" value={f.admissao} onChange={(e) => setF({ ...f, admissao: e.target.value })} /></Campo>
+            <Campo rotulo="Salário mensal (R$)"><input type="number" step="0.01" value={f.salario} onChange={(e) => setF({ ...f, salario: e.target.value })} /></Campo>
+            <Campo rotulo="Telefone"><input value={f.telefone} onChange={(e) => setF({ ...f, telefone: e.target.value })} /></Campo>
+            <Campo rotulo="CPF"><input value={f.cpf} onChange={(e) => setF({ ...f, cpf: e.target.value })} /></Campo>
+            <Campo rotulo="RG"><input value={f.rg} onChange={(e) => setF({ ...f, rg: e.target.value })} /></Campo>
+            <Campo rotulo="CTPS"><input value={f.ctps} onChange={(e) => setF({ ...f, ctps: e.target.value })} /></Campo>
+            <Campo rotulo="PIS"><input value={f.pis} onChange={(e) => setF({ ...f, pis: e.target.value })} /></Campo>
           </div>
-          <Campo rotulo="Salário mensal (R$)"><input type="number" step="0.01" value={f.salario} onChange={(e) => setF({ ...f, salario: e.target.value })} /></Campo>
+          <Campo rotulo="Endereço"><input value={f.endereco} onChange={(e) => setF({ ...f, endereco: e.target.value })} /></Campo>
+          <Campo rotulo="Observações"><textarea rows={2} value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} /></Campo>
           <button className="btn btn-pri" style={{ width: "100%", justifyContent: "center" }} onClick={salvar} disabled={salvando}>
-            {salvando ? "Salvando…" : "Salvar funcionário"}
+            {salvando ? "Salvando…" : modal === "novo" ? "Salvar funcionário" : "Salvar alterações"}
           </button>
+        </Modal>
+      )}
+      {desligar && (
+        <Modal titulo={"Desligar — " + desligar.nome} onFechar={() => setDesligar(null)} largura={400}>
+          {erroM && <div className="erro-box">{erroM}</div>}
+          <p style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 14 }}>
+            Registrar o desligamento de <b>{desligar.nome}</b> na data de hoje? Ele sai da folha e do quadro ativo,
+            mas o histórico permanece no banco.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" style={{ flex: 1, justifyContent: "center" }} onClick={() => setDesligar(null)}>Voltar</button>
+            <button className="btn btn-ouro" style={{ flex: 1, justifyContent: "center" }} onClick={confirmarDesligamento} disabled={salvando}>
+              {salvando ? "Registrando…" : "Confirmar desligamento"}
+            </button>
+          </div>
         </Modal>
       )}
     </div>
@@ -1454,10 +1803,13 @@ function Funcionarios({ dados, podeEditar, agir }) {
    PRODUÇÃO AQUÍCOLA
    ================================================================ */
 function Producao({ dados, indicadores, podeEditar, agir }) {
-  const { tanques, lotes, alimentacao, mortalidade } = dados;
+  const { tanques, lotes, alimentacao, mortalidade, contas } = dados;
+  const contasAtivas = contas.filter((c) => c.ativo);
+  const contaPadrao = (contasAtivas.find((c) => c.tipo === "caixa") || contasAtivas[0])?.id || "";
   const [loteSel, setLoteSel] = useState(null);
-  const [modal, setModal] = useState(null); // 'lote' | 'alim' | 'bio' | 'mort' | 'despesca'
+  const [modal, setModal] = useState(null); // 'lote' | 'alim' | 'bio' | 'mort' | 'despesca' | 'tanque'
   const [f, setF] = useState({});
+  const [contaSel, setContaSel] = useState("");
   const [erroM, setErroM] = useState("");
   const [salvando, setSalvando] = useState(false);
 
@@ -1466,21 +1818,22 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
   const fcaMedio = ativos.length ? ativos.reduce((s, l) => s + indicadores[l.id].fca, 0) / ativos.length : 0;
   const sobrevMedia = ativos.length ? ativos.reduce((s, l) => s + indicadores[l.id].sobrevivencia, 0) / ativos.length : 0;
 
-  const statusTanque = (t) => {
-    const lote = ativos.find((l) => l.tanque === t.id);
-    if (lote) return { rot: "Ocupado", tom: "info", lote };
-    if (t.manutencao) return { rot: "Manutenção", tom: "warn" };
-    return { rot: "Livre", tom: "ok" };
-  };
-  const tanquesLivres = tanques.filter((t) => !t.manutencao && !ativos.find((l) => l.tanque === t.id));
+  const lotesNoTanque = (t) => ativos.filter((l) => l.tanque === t.id);
+  const tanquesDisponiveis = tanques.filter((t) => !t.manutencao);
 
   const abrir = (tipo) => {
     setErroM("");
-    if (tipo === "lote") setF({ especie: Object.keys(ESPECIES)[0] || "Tambaqui", tanque: tanquesLivres[0]?.id || "", alevinos: "", dataPovoamento: hojeISO, pesoInicial: "", custoAlevinos: "" });
+    if (tipo === "lote") setF({ especie: Object.keys(ESPECIES)[0] || "Tambaqui", tanque: tanquesDisponiveis[0]?.id || "", alevinos: "", dataPovoamento: hojeISO, pesoInicial: "", custoAlevinos: "" });
     if (tipo === "alim") setF({ data: hojeISO, racao: "Engorda 32% — 6 mm", kg: "" });
     if (tipo === "bio") setF({ data: hojeISO, peso: "", amostra: 30 });
     if (tipo === "mort") setF({ data: hojeISO, qtd: "", causa: "" });
+    if (tipo === "tanque") setF({ id: "", volume: "", dim: "", local: "", manutencao: false, editando: false });
     setModal(tipo);
+  };
+  const editarTanque = (t) => {
+    setErroM("");
+    setF({ id: t.id, volume: t.volume, dim: t.dim === "—" ? "" : t.dim, local: t.local === "—" ? "" : t.local, manutencao: t.manutencao, editando: true });
+    setModal("tanque");
   };
 
   const salvar = async () => {
@@ -1488,6 +1841,9 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
     let e = null;
     if (modal === "lote") {
       if (!f.tanque || !Number(f.alevinos)) { setSalvando(false); setErroM("Informe o tanque e a quantidade de alevinos."); return; }
+      if (ativos.some((l) => l.tanque === f.tanque && l.especie === f.especie)) {
+        setSalvando(false); setErroM("Já existe um lote ativo de " + f.especie + " nesse tanque. No policultivo, povoe uma espécie diferente ou use outro tanque."); return;
+      }
       e = await agir.novoLote(f);
     }
     if (modal === "alim") {
@@ -1502,6 +1858,18 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
       if (!Number(f.qtd)) { setSalvando(false); setErroM("Informe a quantidade."); return; }
       e = await agir.registrarMortalidade(loteSel, f);
     }
+    if (modal === "tanque") {
+      if (!f.id?.trim() || !Number(f.volume)) { setSalvando(false); setErroM("Informe o código e o volume do tanque."); return; }
+      e = await agir.salvarTanque(f);
+    }
+    setSalvando(false);
+    if (e) { setErroM(e); return; }
+    setModal(null);
+  };
+
+  const excluirTanque = async () => {
+    setSalvando(true);
+    const e = await agir.excluirTanque(f.id);
     setSalvando(false);
     if (e) { setErroM(e); return; }
     setModal(null);
@@ -1509,7 +1877,7 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
 
   const confirmarDespesca = async () => {
     setSalvando(true);
-    const e = await agir.despescar(loteSel);
+    const e = await agir.despescar(loteSel, contaSel || contaPadrao);
     setSalvando(false);
     if (e) { setErroM(e); return; }
     setModal(null); setLoteSel(null);
@@ -1543,7 +1911,7 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {ativo ? <Badge tom="ok">Em cultivo</Badge> : <Badge tom="muted">Finalizado em {dataBR(lote.dataDespesca)}</Badge>}
-            {ativo && podeEditar && <button className="btn btn-ouro btn-sm" onClick={() => { setErroM(""); setModal("despesca"); }}><Ship size={14} /> Registrar despesca</button>}
+            {ativo && podeEditar && <button className="btn btn-ouro btn-sm" onClick={() => { setErroM(""); setContaSel(""); setModal("despesca"); }}><Ship size={14} /> Registrar despesca</button>}
           </div>
         </div>
 
@@ -1671,12 +2039,17 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
         {modal === "despesca" && (
           <Modal titulo={"Registrar despesca — " + loteSel} onFechar={() => setModal(null)} largura={420}>
             {erroM && <div className="erro-box">{erroM}</div>}
-            <p style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 14 }}>
+            <p style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 12 }}>
               Confirmar a despesca de <b>{NUM(ind.populacao)}</b> peixes com peso médio de <b>{NUM(ind.pesoAtual)} g</b>?<br />
               Biomassa estimada: <b>{NUM(ind.biomassa)} kg</b> · Receita a preço de mercado: <b>{BRL(ind.valorMercado)}</b>.
             </p>
+            <Campo rotulo="Conta que recebe a receita">
+              <select value={contaSel || contaPadrao} onChange={(e) => setContaSel(e.target.value)}>
+                {contasAtivas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+            </Campo>
             <p style={{ fontSize: 12, color: "var(--tinta2)", marginBottom: 14 }}>
-              O banco encerra o lote, libera o tanque {lote.tanque} e lança a receita no caixa numa única operação.
+              O banco encerra o lote e lança a receita na conta escolhida numa única operação.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn" style={{ flex: 1, justifyContent: "center" }} onClick={() => setModal(null)}>Cancelar</button>
@@ -1704,21 +2077,33 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
         <div className="card-cab">
           <div>
             <div className="card-tit"><Anchor size={16} /> Tanques-rede</div>
-            <div className="card-sub">Estruturas cadastradas no sistema, com a ocupação atual</div>
+            <div className="card-sub">Com policultivo: cada tanque pode abrigar um lote por espécie</div>
           </div>
+          {podeEditar && <button className="btn btn-pri btn-sm" onClick={() => abrir("tanque")}><Plus size={14} /> Novo tanque</button>}
         </div>
         <div className="grid g4">
           {tanques.map((t) => {
-            const st = statusTanque(t);
+            const lts = lotesNoTanque(t);
+            const ocupacao = lts.reduce((s, l) => s + indicadores[l.id].biomassa, 0) / t.volume;
             return (
               <div key={t.id} style={{ border: "1px solid var(--linha)", borderRadius: 10, padding: "12px 14px", background: "#FBFCFA" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 6 }}>
                   <b style={{ fontFamily: "'Archivo'", fontStretch: "112%" }}>{t.id}</b>
-                  <Badge tom={st.tom}>{st.rot}</Badge>
+                  <span style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                    <Badge tom={lts.length ? "info" : t.manutencao ? "warn" : "ok"}>
+                      {lts.length ? "Ocupado" : t.manutencao ? "Manutenção" : "Livre"}
+                    </Badge>
+                    {podeEditar && <button className="btn-x" title="Editar tanque" onClick={() => editarTanque(t)}><Pencil size={13} /></button>}
+                  </span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--tinta2)", lineHeight: 1.55 }}>
                   {t.dim} · {t.volume} m³<br />{t.local}
-                  {st.lote && <><br /><span style={{ color: "var(--tinta)" }}>Lote <b>{st.lote.id}</b> — {st.lote.especie} · {NUM(indicadores[st.lote.id].densidade, 1)} kg/m³</span></>}
+                  {lts.map((l) => (
+                    <span key={l.id} style={{ display: "block", color: "var(--tinta)" }}>
+                      Lote <b>{l.id}</b> — {l.especie} · {NUM(indicadores[l.id].biomassa)} kg
+                    </span>
+                  ))}
+                  {lts.length > 0 && <span style={{ display: "block" }}>Ocupação total: {NUM(ocupacao, 1)} kg/m³</span>}
                 </div>
               </div>
             );
@@ -1732,7 +2117,7 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
             <div className="card-tit"><Fish size={16} /> Lotes de produção</div>
             <div className="card-sub">Indicadores calculados pelo banco de dados — toque no lote para ver detalhes e manejos</div>
           </div>
-          {podeEditar && <button className="btn btn-pri btn-sm" onClick={() => abrir("lote")} disabled={!tanquesLivres.length}><Plus size={14} /> Novo lote</button>}
+          {podeEditar && <button className="btn btn-pri btn-sm" onClick={() => abrir("lote")} disabled={!tanquesDisponiveis.length}><Plus size={14} /> Novo lote</button>}
         </div>
         <div className="tbl-wrap">
           <table className="tbl">
@@ -1776,9 +2161,9 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
                 {Object.keys(ESPECIES).map((e2) => <option key={e2}>{e2}</option>)}
               </select>
             </Campo>
-            <Campo rotulo="Tanque (livres)">
+            <Campo rotulo="Tanque">
               <select value={f.tanque} onChange={(e) => setF({ ...f, tanque: e.target.value })}>
-                {tanquesLivres.map((t) => <option key={t.id} value={t.id}>{t.id} — {t.volume} m³</option>)}
+                {tanquesDisponiveis.map((t) => <option key={t.id} value={t.id}>{t.id} — {t.volume} m³{lotesNoTanque(t).length ? " (policultivo)" : ""}</option>)}
               </select>
             </Campo>
             <Campo rotulo="Quantidade de alevinos"><input type="number" value={f.alevinos} onChange={(e) => setF({ ...f, alevinos: e.target.value })} /></Campo>
@@ -1791,6 +2176,242 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
           </button>
         </Modal>
       )}
+      {modal === "tanque" && (
+        <Modal titulo={f.editando ? "Editar tanque " + f.id : "Cadastrar tanque-rede"} onFechar={() => setModal(null)} largura={440}>
+          {erroM && <div className="erro-box">{erroM}</div>}
+          <div className="campos-2">
+            <Campo rotulo="Código"><input value={f.id} disabled={f.editando} onChange={(e) => setF({ ...f, id: e.target.value.toUpperCase() })} placeholder="ex.: TR-13" /></Campo>
+            <Campo rotulo="Volume (m³)"><input type="number" step="0.1" value={f.volume} onChange={(e) => setF({ ...f, volume: e.target.value })} /></Campo>
+            <Campo rotulo="Dimensões"><input value={f.dim} onChange={(e) => setF({ ...f, dim: e.target.value })} placeholder="ex.: 4,0 × 4,0 × 2,25 m" /></Campo>
+            <Campo rotulo="Localização"><input value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} placeholder="ex.: Lago do Maicá" /></Campo>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, marginBottom: 14, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!f.manutencao} onChange={(e) => setF({ ...f, manutencao: e.target.checked })}
+              style={{ width: 16, height: 16, accentColor: "#14302A" }} />
+            Em manutenção (indisponível para povoamento)
+          </label>
+          <button className="btn btn-pri" style={{ width: "100%", justifyContent: "center" }} onClick={salvar} disabled={salvando}>
+            {salvando ? "Salvando…" : f.editando ? "Salvar alterações" : "Cadastrar tanque"}
+          </button>
+          {f.editando && (
+            <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 8, color: "var(--crit)" }}
+              onClick={excluirTanque} disabled={salvando}>
+              <Trash2 size={14} /> Excluir tanque (sem lotes ativos)
+            </button>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================
+   CONFIGURAÇÕES (somente administrador)
+   ================================================================ */
+function Configuracoes({ dados, agir }) {
+  const { parametros, categorias, contas, especiesLista } = dados;
+  const [aba, setAba] = useState("parametros");
+  const [edits, setEdits] = useState({});
+  const [precos, setPrecos] = useState({});
+  const [fCat, setFCat] = useState({ nome: "", tipo: "despesa" });
+  const [fConta, setFConta] = useState({ nome: "", banco: "", tipo: "banco" });
+  const [fEsp, setFEsp] = useState({ nome: "", preco: "", cor: "#1F4B42" });
+  const [erroM, setErroM] = useState("");
+  const [aviso, setAviso] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const inputMini = { width: 110, textAlign: "right", border: "1px solid var(--linha)", borderRadius: 8, padding: "6px 9px" };
+
+  const rodar = async (fn, ...args) => {
+    setErroM(""); setAviso(""); setSalvando(true);
+    const e = await fn(...args);
+    setSalvando(false);
+    if (e) setErroM(e); else setAviso("Alteração salva.");
+    return e;
+  };
+
+  const NOMES_PARAM = {
+    valor_cota: "Valor da cota-parte (R$)",
+    mensalidade: "Mensalidade do sócio (R$)",
+    encargos_folha: "Encargos sobre a folha (fração — ex.: 0,38)",
+    meta_fca: "Meta de conversão alimentar (FCA)",
+    meta_sobrevivencia: "Meta de sobrevivência dos lotes (%)",
+    custo_racao_kg: "Custo médio da ração (R$/kg)",
+  };
+
+  return (
+    <div>
+      <div className="card">
+        <div className="card-cab">
+          <div>
+            <div className="card-tit"><Settings size={16} /> Configurações do sistema</div>
+            <div className="card-sub">Parâmetros do negócio, categorias, contas e espécies — sem mexer em programação</div>
+          </div>
+        </div>
+        {erroM && <div className="erro-box">{erroM}</div>}
+        {aviso && !erroM && <div className="aviso-box">{aviso}</div>}
+        <div className="abas">
+          <button className={"aba " + (aba === "parametros" ? "ativa" : "")} onClick={() => setAba("parametros")}>Parâmetros</button>
+          <button className={"aba " + (aba === "categorias" ? "ativa" : "")} onClick={() => setAba("categorias")}>Categorias</button>
+          <button className={"aba " + (aba === "contas" ? "ativa" : "")} onClick={() => setAba("contas")}>Contas correntes</button>
+          <button className={"aba " + (aba === "especies" ? "ativa" : "")} onClick={() => setAba("especies")}>Espécies e preços</button>
+        </div>
+
+        {aba === "parametros" && (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th>Parâmetro</th><th className="num" style={{ width: 150 }}>Valor</th><th style={{ width: 90 }}></th></tr></thead>
+              <tbody>
+                {parametros.map((p) => (
+                  <tr key={p.chave}>
+                    <td><b>{NOMES_PARAM[p.chave] || p.descricao}</b><div style={{ fontSize: 11.5, color: "var(--tinta2)" }}>{p.chave}</div></td>
+                    <td className="num">
+                      <input type="number" step="0.01" style={inputMini}
+                        value={edits[p.chave] ?? p.valor}
+                        onChange={(e) => setEdits({ ...edits, [p.chave]: e.target.value })} />
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <button className="btn btn-sm"
+                        disabled={salvando || edits[p.chave] === undefined || Number(String(edits[p.chave]).replace(",", ".")) === p.valor}
+                        onClick={() => rodar(agir.salvarParametro, p.chave, Number(String(edits[p.chave]).replace(",", ".")))}>
+                        Salvar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p style={{ fontSize: 11.5, color: "var(--tinta2)", marginTop: 10 }}>Os novos valores passam a valer imediatamente em todo o sistema.</p>
+          </div>
+        )}
+
+        {aba === "categorias" && (
+          <div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <Campo rotulo="Nova categoria"><input value={fCat.nome} onChange={(e) => setFCat({ ...fCat, nome: e.target.value })} placeholder="ex.: Frete" /></Campo>
+              <Campo rotulo="Tipo">
+                <select value={fCat.tipo} onChange={(e) => setFCat({ ...fCat, tipo: e.target.value })}>
+                  <option value="receita">Receita</option><option value="despesa">Despesa</option>
+                </select>
+              </Campo>
+              <button className="btn btn-pri" style={{ marginBottom: 12 }} disabled={salvando || !fCat.nome.trim()}
+                onClick={async () => { const e = await rodar(agir.salvarCategoria, fCat); if (!e) setFCat({ nome: "", tipo: fCat.tipo }); }}>
+                <Plus size={14} /> Adicionar
+              </button>
+            </div>
+            <div className="grid g2">
+              {["receita", "despesa"].map((tipo) => (
+                <div key={tipo}>
+                  <div className="card-tit" style={{ marginBottom: 8 }}><Tags size={14} /> {tipo === "receita" ? "Receitas" : "Despesas"}</div>
+                  <table className="tbl">
+                    <tbody>
+                      {categorias.filter((c) => c.tipo === tipo).map((c) => (
+                        <tr key={c.id}>
+                          <td style={{ opacity: c.ativo ? 1 : 0.55 }}>{c.nome}{!c.ativo && " (inativa)"}</td>
+                          <td style={{ textAlign: "right" }}>
+                            <button className="btn btn-sm" disabled={salvando} onClick={() => rodar(agir.alternarCategoria, c)}>
+                              {c.ativo ? "Desativar" : "Reativar"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 11.5, color: "var(--tinta2)", marginTop: 10 }}>Desativar uma categoria não altera lançamentos antigos — ela apenas deixa de aparecer nos formulários.</p>
+          </div>
+        )}
+
+        {aba === "contas" && (
+          <div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <Campo rotulo="Nome da conta"><input value={fConta.nome} onChange={(e) => setFConta({ ...fConta, nome: e.target.value })} placeholder="ex.: Basa c/c 1234-5" /></Campo>
+              <Campo rotulo="Banco (opcional)"><input value={fConta.banco} onChange={(e) => setFConta({ ...fConta, banco: e.target.value })} placeholder="ex.: Banco da Amazônia" /></Campo>
+              <Campo rotulo="Tipo">
+                <select value={fConta.tipo} onChange={(e) => setFConta({ ...fConta, tipo: e.target.value })}>
+                  <option value="banco">Conta bancária</option><option value="caixa">Caixa físico</option>
+                </select>
+              </Campo>
+              <button className="btn btn-pri" style={{ marginBottom: 12 }} disabled={salvando || !fConta.nome.trim()}
+                onClick={async () => { const e = await rodar(agir.salvarConta, fConta); if (!e) setFConta({ nome: "", banco: "", tipo: "banco" }); }}>
+                <Plus size={14} /> Adicionar conta
+              </button>
+            </div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead><tr><th>Conta</th><th>Banco</th><th>Tipo</th><th className="num">Saldo</th><th>Situação</th><th></th></tr></thead>
+                <tbody>
+                  {contas.map((c) => (
+                    <tr key={c.id}>
+                      <td><b>{c.nome}</b></td>
+                      <td>{c.banco || "—"}</td>
+                      <td>{c.tipo === "caixa" ? "Caixa físico" : "Conta bancária"}</td>
+                      <td className="num">{BRL(c.saldo)}</td>
+                      <td>{c.ativo ? <Badge tom="ok">Ativa</Badge> : <Badge tom="muted">Inativa</Badge>}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <button className="btn btn-sm" disabled={salvando} onClick={() => rodar(agir.alternarConta, c)}>
+                          {c.ativo ? "Desativar" : "Reativar"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p style={{ fontSize: 11.5, color: "var(--tinta2)", marginTop: 10 }}>
+              Cada lançamento pertence a uma conta, e o saldo é a soma dos lançamentos dela. Ao criar uma conta bancária,
+              registre no Financeiro uma receita de "Saldo inicial" com o valor atual do extrato.
+            </p>
+          </div>
+        )}
+
+        {aba === "especies" && (
+          <div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <Campo rotulo="Nova espécie"><input value={fEsp.nome} onChange={(e) => setFEsp({ ...fEsp, nome: e.target.value })} placeholder="ex.: Pirarucu" /></Campo>
+              <Campo rotulo="Preço/kg (R$)"><input type="number" step="0.01" value={fEsp.preco} onChange={(e) => setFEsp({ ...fEsp, preco: e.target.value })} /></Campo>
+              <Campo rotulo="Cor"><input type="color" value={fEsp.cor} onChange={(e) => setFEsp({ ...fEsp, cor: e.target.value })} style={{ width: 52, height: 36, padding: 2 }} /></Campo>
+              <button className="btn btn-pri" style={{ marginBottom: 12 }} disabled={salvando || !fEsp.nome.trim() || !Number(fEsp.preco)}
+                onClick={async () => { const e = await rodar(agir.salvarEspecie, null, fEsp); if (!e) setFEsp({ nome: "", preco: "", cor: "#1F4B42" }); }}>
+                <Plus size={14} /> Adicionar espécie
+              </button>
+            </div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead><tr><th>Espécie</th><th className="num" style={{ width: 150 }}>Preço/kg</th><th style={{ width: 80 }}>Cor</th><th style={{ width: 90 }}></th></tr></thead>
+                <tbody>
+                  {especiesLista.map((e2) => {
+                    const ed = precos[e2.id] || {};
+                    return (
+                      <tr key={e2.id}>
+                        <td><TagEspecie especie={e2.nome} /></td>
+                        <td className="num">
+                          <input type="number" step="0.01" style={inputMini} value={ed.preco ?? e2.preco}
+                            onChange={(ev) => setPrecos({ ...precos, [e2.id]: { ...ed, preco: ev.target.value } })} />
+                        </td>
+                        <td>
+                          <input type="color" value={ed.cor ?? e2.cor}
+                            onChange={(ev) => setPrecos({ ...precos, [e2.id]: { ...ed, cor: ev.target.value } })}
+                            style={{ width: 44, height: 30, padding: 2 }} />
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <button className="btn btn-sm" disabled={salvando || (ed.preco === undefined && ed.cor === undefined)}
+                            onClick={() => rodar(agir.salvarEspecie, e2.id, { preco: ed.preco ?? e2.preco, cor: ed.cor ?? e2.cor })}>
+                            Salvar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p style={{ fontSize: 11.5, color: "var(--tinta2)", marginTop: 10 }}>O preço por quilo alimenta na hora o valor de mercado da biomassa, o balanço e a receita das despescas.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1800,6 +2421,7 @@ function Producao({ dados, indicadores, podeEditar, agir }) {
    ================================================================ */
 const BLOCOS_RELATORIO = [
   { id: "fluxo", rotulo: "Fluxo de caixa realizado", papeis: ["administrador", "contador"] },
+  { id: "extrato", rotulo: "Extrato de caixa por conta", papeis: ["administrador", "contador"] },
   { id: "projecao", rotulo: "Projeção de caixa (próximos 3 meses)", papeis: ["administrador", "contador"] },
   { id: "pagar", rotulo: "Contas a pagar", papeis: ["administrador", "contador"] },
   { id: "receber", rotulo: "Contas a receber", papeis: ["administrador", "contador"] },
@@ -1812,10 +2434,11 @@ const BLOCOS_RELATORIO = [
 ];
 
 function Relatorios({ usuario, dados, indicadores }) {
-  const { socios, pagar, receber, estoque, funcionarios, lotes, fluxo, saldo } = dados;
+  const { socios, pagar, receber, estoque, funcionarios, lotes, fluxo, saldo, contas, lancamentos, patrimonio } = dados;
   const disponiveis = BLOCOS_RELATORIO.filter((b) => b.papeis.includes(usuario.papel));
   const [sel, setSel] = useState(() => Object.fromEntries(disponiveis.slice(0, 3).map((b) => [b.id, true])));
   const [gerado, setGerado] = useState(false);
+  const [contaExtrato, setContaExtrato] = useState("");
   const marcados = disponiveis.filter((b) => sel[b.id]);
 
   const pagarPend = pagar.filter((c) => c.status === "pendente");
@@ -1852,15 +2475,17 @@ function Relatorios({ usuario, dados, indicadores }) {
     const totReceber = receberPend.reduce((s, c) => s + c.valor, 0);
     const estoques = estoque.reduce((s, e) => s + e.qtd * e.custo, 0);
     const bio = ativos.reduce((s, l) => s + indicadores[l.id].valorMercado, 0);
-    const imob = IMOBILIZADO.reduce((s, i) => s + i.valor, 0);
+    const soma = (t) => patrimonio.filter((p) => p.tipo === t).reduce((s, p) => s + p.valor, 0);
+    const imob = soma("imobilizado");
     const circ = saldo + totReceber + estoques;
     const totalAtivo = circ + bio + imob;
-    const fornec = pagarPend.filter((c) => c.credor !== "Banco da Amazônia").reduce((s, c) => s + c.valor, 0);
-    const pCirc = fornec + PASSIVOS_FIXOS.obrigacoesTrabalhistas + PASSIVOS_FIXOS.fnoCurtoPrazo;
+    const fornec = pagarPend.reduce((s, c) => s + c.valor, 0);
+    const pCirc = fornec + soma("passivo_circulante");
+    const pNC = soma("passivo_nao_circulante");
     const capital = socios.reduce((s, x) => s + x.cotas * VALOR_COTA, 0);
-    const pl = totalAtivo - pCirc - PASSIVOS_FIXOS.fnoLongoPrazo;
-    return { circ, bio, imob, totalAtivo, pCirc, pNC: PASSIVOS_FIXOS.fnoLongoPrazo, capital, pl };
-  }, [ativos, indicadores, estoque, pagarPend, receberPend, socios, saldo]);
+    const pl = totalAtivo - pCirc - pNC;
+    return { circ, bio, imob, totalAtivo, pCirc, pNC, capital, pl };
+  }, [ativos, indicadores, estoque, pagarPend, receberPend, socios, saldo, patrimonio]);
 
   if (gerado) {
     return (
@@ -1905,6 +2530,52 @@ function Relatorios({ usuario, dados, indicadores }) {
               <p className="rel-nota">* Mês corrente parcial, até {dataBR(hojeISO)}. Saldo atual em caixa: {BRL(saldo)}.</p>
             </div>
           )}
+
+          {sel.extrato && (() => {
+            const lista = lancamentos
+              .filter((l) => !contaExtrato || l.conta === contaExtrato)
+              .sort((a, b) => a.data.localeCompare(b.data) || String(a.id).localeCompare(String(b.id)));
+            const nomeC = contas.find((c) => c.id === contaExtrato)?.nome;
+            const cols = contaExtrato ? 5 : 6;
+            let run = 0, mesCorrente = "";
+            const linhas = [];
+            lista.forEach((l) => {
+              const m = String(l.data).slice(0, 7);
+              if (m !== mesCorrente) {
+                mesCorrente = m;
+                const rot = new Date(m + "-01T12:00:00").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+                linhas.push(
+                  <tr key={"m" + m}>
+                    <td colSpan={cols} style={{ background: "#F4F7F2", fontWeight: 700, textTransform: "capitalize" }}>{rot}</td>
+                  </tr>
+                );
+              }
+              run += l.tipo === "receita" ? l.valor : -l.valor;
+              linhas.push(
+                <tr key={l.id}>
+                  <td>{dataBR(l.data)}</td>
+                  <td>{l.desc}</td>
+                  {!contaExtrato && <td>{contas.find((c) => c.id === l.conta)?.nome || "—"}</td>}
+                  <td>{l.categoria}</td>
+                  <td className={"num " + (l.tipo === "receita" ? "pos" : "neg")}>{l.tipo === "receita" ? "+" : "−"} {BRL(l.valor)}</td>
+                  <td className="num"><b>{BRL(run)}</b></td>
+                </tr>
+              );
+            });
+            return (
+              <div className="rel-bloco">
+                <h3>Extrato de caixa — {nomeC || "todas as contas"}</h3>
+                <table className="tbl">
+                  <thead><tr><th>Data</th><th>Descrição</th>{!contaExtrato && <th>Conta</th>}<th>Categoria</th><th className="num">Valor</th><th className="num">Saldo</th></tr></thead>
+                  <tbody>
+                    {linhas}
+                    {lista.length === 0 && <tr><td colSpan={cols} className="vazio">Nenhum lançamento nesta conta.</td></tr>}
+                  </tbody>
+                </table>
+                <p className="rel-nota">Movimentações em ordem cronológica, mês a mês, com saldo acumulado (até 1.000 lançamentos mais recentes).</p>
+              </div>
+            );
+          })()}
 
           {sel.projecao && (
             <div className="rel-bloco">
@@ -2009,7 +2680,7 @@ function Relatorios({ usuario, dados, indicadores }) {
                   <tr><td><b>Imobilizado</b> (líquido de depreciação)</td><td className="num">{BRL(balSint.imob)}</td></tr>
                   <tr className="total"><td>Total do ativo</td><td className="num">{BRL(balSint.totalAtivo)}</td></tr>
                   <tr><td><b>Passivo circulante</b></td><td className="num">{BRL(balSint.pCirc)}</td></tr>
-                  <tr><td><b>Passivo não circulante</b> (FNO — Basa)</td><td className="num">{BRL(balSint.pNC)}</td></tr>
+                  <tr><td><b>Passivo não circulante</b></td><td className="num">{BRL(balSint.pNC)}</td></tr>
                   <tr><td><b>Patrimônio líquido</b> (capital de {BRL(balSint.capital)} + reservas e sobras)</td><td className="num">{BRL(balSint.pl)}</td></tr>
                   <tr className="total"><td>Total do passivo + PL</td><td className="num">{BRL(balSint.pCirc + balSint.pNC + balSint.pl)}</td></tr>
                 </tbody>
@@ -2071,6 +2742,16 @@ function Relatorios({ usuario, dados, indicadores }) {
             {b.rotulo}
           </label>
         ))}
+        {sel.extrato && (
+          <div style={{ marginTop: 12 }}>
+            <Campo rotulo="Conta do extrato">
+              <select value={contaExtrato} onChange={(e) => setContaExtrato(e.target.value)}>
+                <option value="">Todas as contas</option>
+                {contas.filter((c) => c.ativo).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+            </Campo>
+          </div>
+        )}
         <button className="btn btn-pri" style={{ marginTop: 16, width: "100%", justifyContent: "center", padding: 11 }}
           disabled={!marcados.length} onClick={() => setGerado(true)}>
           <FileBarChart size={15} /> Gerar relatório ({marcados.length} bloco{marcados.length === 1 ? "" : "s"})
@@ -2179,35 +2860,39 @@ export default function App() {
   };
 
   const agir = {
+    /* ---- quadro social e mensalidades ---- */
     salvarSocio: (f) => exec(supabase.from("socios").insert({
       nome: f.nome, cpf: f.cpf || null, comunidade: f.comunidade || null,
       telefone: f.telefone || null, data_adesao: f.adesao, cotas: Number(f.cotas) || 0,
+      cargo: f.cargo || null,
     })),
-
+    editarSocio: (id, f) => exec(supabase.from("socios").update({
+      nome: f.nome, cpf: f.cpf || null, comunidade: f.comunidade || null,
+      telefone: f.telefone || null, data_adesao: f.adesao, cotas: Number(f.cotas) || 0,
+      cargo: f.cargo || null, status: f.status === "Desligado" ? "desligado" : "ativo",
+    }).eq("id", id)),
     gerarMensalidades: async () => {
       const { error } = await supabase.rpc("gerar_mensalidades");
       if (error) return msgErro(error);
       await carregarDados();
       return null;
     },
-
-    baixarMensalidade: async (s) => {
-      const pend = dados.mensalidadesAbertas
-        .filter((mn) => mn.socio_id === s.id)
-        .sort((a, b) => String(a.competencia).localeCompare(String(b.competencia)))[0];
-      if (!pend) return "Nenhuma mensalidade em aberto para este sócio.";
-      const { data: lanc, error: e1 } = await supabase.from("lancamentos").insert({
-        data: hojeISO, descricao: "Mensalidade " + dataBR(pend.competencia).slice(3) + " — " + s.nome,
-        categoria: "Mensalidades", tipo: "receita", valor: nm(pend.valor), criado_por: usuario.id,
-      }).select("id").single();
+    baixarMensalidade: async (m, contaId, nomeSocio) => {
+      const { error: e1 } = await supabase.from("lancamentos").insert({
+        data: hojeISO, descricao: "Mensalidade " + dataBR(m.competencia).slice(3) + " — " + nomeSocio,
+        categoria: "Mensalidades", tipo: "receita", valor: m.valor, conta_id: contaId, criado_por: usuario.id,
+      });
       if (e1) return msgErro(e1);
       const { error: e2 } = await supabase.from("mensalidades")
-        .update({ status: "paga", pago_em: hojeISO }).eq("id", pend.id);
+        .update({ status: "paga", pago_em: hojeISO }).eq("id", m.id);
       if (e2) return msgErro(e2);
       await carregarDados();
       return null;
     },
+    isentarMensalidade: (m) => exec(supabase.from("mensalidades").update({ status: "isenta", pago_em: null }).eq("id", m.id)),
+    reabrirMensalidade: (m) => exec(supabase.from("mensalidades").update({ status: "aberta", pago_em: null }).eq("id", m.id)),
 
+    /* ---- documentos ---- */
     salvarDocumento: async (f, arquivo) => {
       let arquivo_path = null;
       if (arquivo) {
@@ -2221,7 +2906,6 @@ export default function App() {
         data_vencimento: f.vencimento || null, arquivo_path, criado_por: usuario.id,
       }));
     },
-
     abrirDocumento: async (doc) => {
       const { data, error } = await supabase.storage.from("documentos").createSignedUrl(doc.arquivo_path, 300);
       if (error) return msgErro(error);
@@ -2229,21 +2913,48 @@ export default function App() {
       return null;
     },
 
-    novoLancamento: (f) => exec(supabase.from("lancamentos").insert({
-      data: f.data, descricao: f.desc, categoria: f.categoria, tipo: f.tipo, valor: f.valor, criado_por: usuario.id,
-    })),
-
+    /* ---- financeiro ---- */
+    novoLancamento: async (f, tanquesRateio) => {
+      const { data: lanc, error: e1 } = await supabase.from("lancamentos").insert({
+        data: f.data, descricao: f.desc, categoria: f.categoria, tipo: f.tipo,
+        valor: f.valor, conta_id: f.conta, criado_por: usuario.id,
+      }).select("id").single();
+      if (e1) return msgErro(e1);
+      if (tanquesRateio && tanquesRateio.length) {
+        const n = tanquesRateio.length;
+        const base = Math.floor((f.valor * 100) / n) / 100;
+        if (base <= 0) { await carregarDados(); return "Lançamento salvo, mas o valor é pequeno demais para ratear entre " + n + " tanques."; }
+        const resto = Math.round((f.valor - base * n) * 100) / 100;
+        const linhas = tanquesRateio.map((t, i) => ({
+          lancamento_id: lanc.id, tanque_id: t,
+          valor: i === 0 ? Math.round((base + resto) * 100) / 100 : base,
+        }));
+        const { error: e2 } = await supabase.from("lancamento_rateios").insert(linhas);
+        if (e2) { await carregarDados(); return "Lançamento salvo, mas o rateio falhou: " + msgErro(e2); }
+      }
+      await carregarDados();
+      return null;
+    },
+    cancelarLancamento: async (l) => {
+      const { error: e1 } = await supabase.from("titulos")
+        .update({ status: "pendente", liquidado_em: null, lancamento_id: null })
+        .eq("lancamento_id", l.id);
+      if (e1) return msgErro(e1);
+      const { error: e2 } = await supabase.from("lancamentos").delete().eq("id", l.id);
+      if (e2) return msgErro(e2);
+      await carregarDados();
+      return null;
+    },
     novoTitulo: (tipo, f) => exec(supabase.from("titulos").insert({
       tipo, descricao: f.desc, contraparte: f.contraparte || null, valor: f.valor, vencimento: f.venc,
     })),
-
-    liquidarTitulo: async (t) => {
+    liquidarTitulo: async (t, contaId) => {
       const { data: lanc, error: e1 } = await supabase.from("lancamentos").insert({
         data: hojeISO,
         descricao: (t.tipo === "pagar" ? "Pagamento — " : "Recebimento — ") + t.desc +
           (t.contraparte && t.contraparte !== "—" ? " (" + t.contraparte + ")" : ""),
         categoria: "Outros", tipo: t.tipo === "pagar" ? "despesa" : "receita",
-        valor: t.valor, criado_por: usuario.id,
+        valor: t.valor, conta_id: contaId, criado_por: usuario.id,
       }).select("id").single();
       if (e1) return msgErro(e1);
       const { error: e2 } = await supabase.from("titulos")
@@ -2252,44 +2963,79 @@ export default function App() {
       await carregarDados();
       return null;
     },
+    cancelarTitulo: (t) => exec(supabase.from("titulos").update({ status: "cancelado" }).eq("id", t.id)),
 
+    /* ---- estoque ---- */
     novoItemEstoque: (f) => exec(supabase.from("estoque_itens").insert({
       item: f.item, unidade: f.unidade || "unidade", quantidade: Number(f.qtd) || 0,
       minimo: Number(f.minimo) || 0, custo_unitario: Number(f.custo) || 0,
     })),
-
     movimentarEstoque: (itemId, tipo, qtd) => exec(supabase.from("estoque_movimentos").insert({
       item_id: itemId, tipo, quantidade: qtd, criado_por: usuario.id,
     })),
 
-    novoFuncionario: (f) => exec(supabase.from("funcionarios").insert({
-      nome: f.nome, cargo: f.cargo || null, data_admissao: f.admissao, salario: Number(f.salario) || 0,
-    })),
+    /* ---- pessoal ---- */
+    salvarFuncionario: (f, id) => {
+      const corpo = {
+        nome: f.nome, cargo: f.cargo || null, data_admissao: f.admissao, salario: Number(f.salario) || 0,
+        cpf: f.cpf || null, rg: f.rg || null, ctps: f.ctps || null, pis: f.pis || null,
+        telefone: f.telefone || null, endereco: f.endereco || null, observacao: f.observacao || null,
+      };
+      return exec(id ? supabase.from("funcionarios").update(corpo).eq("id", id)
+        : supabase.from("funcionarios").insert(corpo));
+    },
+    desligarFuncionario: (x) => exec(supabase.from("funcionarios")
+      .update({ ativo: false, data_desligamento: hojeISO }).eq("id", x.id)),
 
+    /* ---- produção ---- */
     novoLote: (f) => exec(supabase.from("lotes").insert({
       id: gerarIdLote(f.dataPovoamento), especie_id: ESPECIES[f.especie]?.id,
       tanque_id: f.tanque, quantidade_alevinos: Number(f.alevinos),
       data_povoamento: f.dataPovoamento, peso_inicial_g: Number(f.pesoInicial) || 1,
       custo_alevinos: Number(f.custoAlevinos) || 0,
     })),
-
     registrarAlimentacao: (loteId, f) => exec(supabase.from("alimentacoes").insert({
       lote_id: loteId, data: f.data, racao: f.racao, quantidade_kg: Number(f.kg), criado_por: usuario.id,
     })),
-
     registrarBiometria: (loteId, f) => exec(supabase.from("biometrias").insert({
       lote_id: loteId, data: f.data, peso_medio_g: Number(f.peso), amostra: Number(f.amostra) || null, criado_por: usuario.id,
     })),
-
     registrarMortalidade: (loteId, f) => exec(supabase.from("mortalidades").insert({
       lote_id: loteId, data: f.data, quantidade: Number(f.qtd), causa: f.causa || "Não identificada", criado_por: usuario.id,
     })),
-
-    despescar: async (loteId) => {
-      const { error } = await supabase.rpc("registrar_despesca", { p_lote: loteId });
+    despescar: async (loteId, contaId) => {
+      const { error } = await supabase.rpc("registrar_despesca", { p_lote: loteId, p_conta: contaId });
       if (error) return msgErro(error);
       await carregarDados();
       return null;
+    },
+    salvarTanque: (f) => {
+      const corpo = { volume_m3: Number(f.volume), dimensoes: f.dim || null, local: f.local || null, em_manutencao: !!f.manutencao };
+      return exec(f.editando
+        ? supabase.from("tanques").update(corpo).eq("id", f.id)
+        : supabase.from("tanques").insert({ id: f.id.trim().toUpperCase(), ...corpo }));
+    },
+    excluirTanque: async (id) => {
+      if (dados.lotes.some((l) => l.status === "Ativo" && l.tanque === id))
+        return "Este tanque tem lote ativo — registre a despesca antes de excluí-lo.";
+      return exec(supabase.from("tanques").update({ ativo: false }).eq("id", id));
+    },
+
+    /* ---- balanço e configurações ---- */
+    salvarItemPatrimonial: (f) => exec(supabase.from("itens_patrimoniais").insert({
+      tipo: f.tipo, descricao: f.descricao, valor: f.valor,
+    })),
+    excluirItemPatrimonial: (p) => exec(supabase.from("itens_patrimoniais").delete().eq("id", p.id)),
+    salvarParametro: (chave, valor) => exec(supabase.from("parametros").update({ valor }).eq("chave", chave)),
+    salvarCategoria: (f) => exec(supabase.from("categorias_financeiras").insert({ nome: f.nome.trim(), tipo: f.tipo })),
+    alternarCategoria: (c) => exec(supabase.from("categorias_financeiras").update({ ativo: !c.ativo }).eq("id", c.id)),
+    salvarConta: (f) => exec(supabase.from("contas").insert({ nome: f.nome.trim(), banco: f.banco || null, tipo: f.tipo })),
+    alternarConta: (c) => exec(supabase.from("contas").update({ ativo: !c.ativo }).eq("id", c.id)),
+    salvarEspecie: (id, f) => {
+      const corpo = { preco_kg: Number(String(f.preco).replace(",", ".")) || 0, cor_hex: f.cor || null };
+      return exec(id
+        ? supabase.from("especies").update(corpo).eq("id", id)
+        : supabase.from("especies").insert({ nome: f.nome.trim(), ...corpo }));
     },
   };
 
@@ -2348,9 +3094,10 @@ export default function App() {
           {aba === "socios" && <Socios dados={dados} podeEditar={podeEditar} agir={agir} />}
           {aba === "documentos" && <Documentos dados={dados} podeEditar={podeEditar} agir={agir} />}
           {aba === "estoque" && <Estoque dados={dados} podeEditar={podeEditar} agir={agir} />}
-          {aba === "balanco" && <Balanco dados={dados} indicadores={indicadores} />}
+          {aba === "balanco" && <Balanco dados={dados} indicadores={indicadores} podeEditar={podeEditar} agir={agir} />}
           {aba === "funcionarios" && <Funcionarios dados={dados} podeEditar={podeEditar} agir={agir} />}
           {aba === "relatorios" && <Relatorios usuario={usuario} dados={dados} indicadores={indicadores} />}
+          {aba === "config" && <Configuracoes dados={dados} agir={agir} />}
         </div>
       </div>
     </div>
